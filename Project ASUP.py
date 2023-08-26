@@ -20,7 +20,7 @@ for i in range(1, staff_on_leave + 1):
     l_staff_on_leave.append(name_of_staff.upper())
 print(l_staff_on_leave)
 # import the SQL database
-sqltor = mysql.connector.connect(host='localhost', user='root', passwd='Iam@MYSQLwithAIML', database='ASUP',
+sqltor = mysql.connector.connect(host='localhost', user='root', passwd='localhost', database='ASUP',
                                   auth_plugin='mysql_native_password')
 cursor = sqltor.cursor()
 cursor.execute('SHOW TABLES;')

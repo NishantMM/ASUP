@@ -1,275 +1,352 @@
+from tkinter import ttk
 from tkinter import *
-from PIL import ImageTk, Image
-import datetime
-import mysql.connector
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from openpyxl import load_workbook
+from datetime import datetime
+import random
+from docx import Document
+from docx.enum.section import WD_ORIENTATION
+from docx.shared import Pt, RGBColor
 import pandas as pd
-from matplotlib.cbook import get_sample_data
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as font_manager
+from datetime import date
+import os
+import logging
 
-todate = datetime.date.today()
-today = datetime.datetime.today().weekday()
-days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-print(todate, days[today], end='\n')
+# Configure logging
+logging.basicConfig(filename='substitution_list.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-l_staff_on_leave = []
+day = datetime.today().weekday()
 
-root = Tk()
+# List of motivational quotes
+quotes = [
+    "Believe you can and you're halfway there.",
+    "The only way to do great work is to love what you do.",
+    "Success is not how high you have climbed, but how you make a positive difference to the world.",
+    "Your time is limited, so don’t waste it living someone else’s life.",
+    "The best time to plant a tree was 20 years ago. The second best time is now."
+]
 
-# Set window size and position
-root.geometry('400x300')
-root.eval('tk::PlaceWindow . center')
+# Function to get the timetable of a teacher
+def get_timetable(teacher_name):
+    ab_timetable = {}
+    wb = load_workbook(filename='T_TIMETABLE.xlsx')
+    if teacher_name not in wb.sheetnames:
+        logging.warning(f"Teacher '{teacher_name}' not found in the timetable.")
+        return None
+    sheet = wb[teacher_name]
+    for i in range(2, 10):
+        cells = sheet.cell(row=day + 2, column=i)
+        ab_timetable[i-1] = cells.value if cells else '-'
+    return ab_timetable
 
-num_label = Label(root, text='Number of teachers on leave:')
-num_label.pack()
+# Function to get the list of teachers and their codes
+def get_teachers():
+    df = pd.read_excel('TCODE-TNAME-TCLASSES.xlsx')
+    teachers = df.set_index('Teacher Code')['Classes'].to_dict()
+    teacher_names = df.set_index('Teacher Code')['Teacher Name'].to_dict()
+    return teachers, teacher_names
 
-num_entry = Entry(root)
-num_entry.pack()
+# Function to group teachers based on the classes they teach
+def group_teachers():
+    teachers, teacher_names = get_teachers()
+    groups = {(6, 7, 8): {}, (9, 10): {}, (11, 12): {}}
+    wb = load_workbook(filename='T_TIMETABLE.xlsx')
 
-
-def submit():
-    num_teachers = int(num_entry.get())
-    num_label.pack_forget()
-    num_entry.pack_forget()
-    submit_button.pack_forget()
-
-    teacher_labels = []
-    teacher_entries = []
-    for i in range(num_teachers):
-        teacher_label = Label(root, text=f'Teacher {i + 1}:')
-        teacher_label.pack()
-        teacher_labels.append(teacher_label)
-
-        teacher_entry = Entry(root)
-        teacher_entry.pack()
-        teacher_entries.append(teacher_entry)
-
-    def done():
-        for teacher_entry in teacher_entries:
-            seperator = '_'
-            l_staff_on_leave.append(seperator.join(teacher_entry.get().upper().split()))
-
-        for teacher_label in teacher_labels:
-            teacher_label.pack_forget()
-        for teacher_entry in teacher_entries:
-            teacher_entry.pack_forget()
-        done_button.pack_forget()
-        root.destroy()
-
-    done_button = Button(root, text='Done', command=done)
-    done_button.pack()
-
-
-submit_button = Button(root, text='Submit', command=submit)
-submit_button.pack()
-
-root.mainloop()
-
-sqltor = mysql.connector.connect(host='localhost', user='root', passwd='Iam@MYSQLwithAIML', database='ASUP',
-                                 auth_plugin='mysql_native_password')
-cursor = sqltor.cursor()
-cursor.execute('SHOW TABLES;')
-the_tables = cursor.fetchall()
-all_teachers = []
-for table in the_tables:
-    all_teachers.append(table)
-
-teacher_classes = {}
-with open('teachers_classes.txt', 'r') as f:
-    for line in f:
-        teacher, classes = line.strip().split(':')
-        classes = classes.split(',')
-        teacher_classes[teacher] = classes
-
-substitution_list = {}
-
-def substitute(absentees):
-    read_table = sqltor.cursor()
-    selecting = "SELECT PERIOD_DAYS, {} " \
-                "FROM {} ;".format(days[today].upper(), absentees)
-    read_table.execute(selecting)
-    name_and_period = read_table.fetchall()
-    for each_period in name_and_period:
-        if each_period[1] is None:
+    for code, classes in teachers.items():
+        if teacher_names[code] not in wb.sheetnames:
             continue
-        else:
-            teacher_not_free_period = each_period[0]
-            the_period = each_period[1]
-            found_substitute = False
-            for other_teachers_tuple in all_teachers:
-                if found_substitute:
-                    break
-                other_teachers = other_teachers_tuple[0]
-                if other_teachers == absentees or other_teachers in assigned_substitutes or \
-                        other_teachers.upper() in l_staff_on_leave:
-                    continue
-                else:
-                    read_other_teacher = sqltor.cursor()
-                    selecting_other_teacher = "SELECT PERIOD_DAYS, {} " \
-                                              "FROM {} ;".format(days[today].upper(), other_teachers)
-                    read_other_teacher.execute(selecting_other_teacher)
-                    name_and_period_of_other_teacher = read_other_teacher.fetchall()
-                    for epiot in name_and_period_of_other_teacher:
-                        if epiot[0] == teacher_not_free_period and epiot[1] is None:
-                            if absentees not in substitution_list:
-                                substitution_list[absentees] = []
-                            substitution_list[absentees].append((other_teachers, epiot[0], the_period))
-                            assigned_substitutes.add(other_teachers)
-                            found_substitute = True
-                            break
-                        else:
+        class_list = [int(c) for c in classes.split(',')]
+        if any(c in class_list for c in [6, 7, 8]):
+            groups[(6, 7, 8)][code] = teacher_names[code]
+        if any(c in class_list for c in [9, 10]):
+            groups[(9, 10)][code] = teacher_names[code]
+        if any(c in class_list for c in [11, 12]):
+            groups[(11, 12)][code] = teacher_names[code]
+
+    return groups
+
+# Function to check if a teacher has continuous free periods
+def has_continuous_free_periods(teacher_timetable, min_free_periods=2):
+    free_periods = [period for period, class_ in teacher_timetable.items() if class_ == ' ']
+    free_periods.sort()
+    for i in range(len(free_periods) - min_free_periods + 1):
+        if all(free_periods[j] == free_periods[i] + j for j in range(min_free_periods)):
+            return True
+    return False
+
+# Function to find a substitute teacher for an absent teacher
+def find_substitute(absent_teacher, teacher_names, assigned_teachers):
+    groups = group_teachers()
+    substitutes = {}
+    assigned_periods = {teacher: [] for teacher in teacher_names.values()}
+    excluded_teachers = ['AMIN MURMU', 'BINI P KURIAKOSE', 'JONES SOLOMON ROCHE', 'KARUPPASAMY A',
+                         'SOMASHEKHARAIAH D S', 'SR.THERESA JOSEPH']
+
+    if absent_teacher in teacher_names:
+        absent_timetable = get_timetable(teacher_names[absent_teacher])
+        if absent_timetable is None:
+            return None
+
+        for period, class_ in absent_timetable.items():
+            if class_ is None or class_ == '-' or (class_ and class_.strip() == ''):
+                substitutes[period] = 'Free Period'
+                continue
+
+            if class_ and any(char.isdigit() for char in class_):
+                class_number = int(''.join(filter(str.isdigit, class_)))
+            else:
+                class_number = None
+
+            substitute_found = False
+
+            # First, try to find a substitute from the same group
+            for group, teachers_in_group in groups.items():
+                if class_number in group:
+                    free_teachers = []
+                    for teacher in teachers_in_group:
+                        teacher_timetable = get_timetable(teacher_names[teacher])
+                        if teacher_timetable is None:
                             continue
+                        if period in assigned_periods[teacher_names[teacher]] or teacher_names[teacher] in excluded_teachers or teacher in absent_teachers:
+                            continue
+                        if (period not in teacher_timetable or (teacher_timetable[period] and teacher_timetable[period].strip() == '')) and teacher_names[teacher] not in assigned_teachers:
+                            free_teachers.append(teacher_names[teacher])
+
+                    if free_teachers:
+                        substitute_teacher = random.choice(free_teachers)
+                        substitutes[period] = f"{substitute_teacher}\n{class_.strip() if class_ else ''}"
+                        assigned_periods[substitute_teacher].append(period)
+                        assigned_teachers.append(substitute_teacher)
+                        substitute_found = True
+                        break
+
+            # Fallback: Look for any teacher from any group if no substitute was found
+            if not substitute_found:
+                for group, teachers_in_group in groups.items():
+                    free_teachers = []
+                    for teacher in teachers_in_group:
+                        teacher_timetable = get_timetable(teacher_names[teacher])
+                        if teacher_timetable is None:
+                            continue
+                        if period in assigned_periods[teacher_names[teacher]] or teacher_names[teacher] in excluded_teachers or teacher in absent_teachers:
+                            continue
+                        if teacher_names[teacher] not in assigned_teachers:
+                            free_teachers.append(teacher_names[teacher])
+
+                    if free_teachers:
+                        substitute_teacher = random.choice(free_teachers)
+                        substitutes[period] = f"{substitute_teacher}\n{class_.strip() if class_ else ''}"
+                        assigned_periods[substitute_teacher].append(period)
+                        assigned_teachers.append(substitute_teacher)
+                        substitute_found = True
+                        break
+
+            if period not in substitutes:  # Ensure substitution is assigned
+                substitutes[period] = 'No Substitute'
+
+    return substitutes
 
 
-assigned_substitutes = set()
-for i in l_staff_on_leave:
-    substitute(i)
-print(substitution_list)
+absent_teachers = []
 
-window = Tk()
-window.attributes("-fullscreen", True)
-window.title("Substitution List")
-window.configure(bg="white")
+# Function to center the window on the screen
+def center_window(win):
+    win.update_idletasks()
+    width = win.winfo_width()
+    height = win.winfo_height()
+    x = (win.winfo_screenwidth() // 2) - (width // 2)
+    y = (win.winfo_screenheight() // 2) - (height // 2)
+    win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
 
-from PIL import Image
-image_to_open = Image.open("school logo.png")
-photo = ImageTk.PhotoImage(image_to_open)
-
-# Create a label to display the image and pack it at the top left of the window
-image_label = Label(window, image=photo)
-image_label.pack(pady=20)
-
-
-def show_date():
-    now = datetime.datetime.now()
-    date = now.strftime("%Y-%m-%d")
-    day = now.strftime("%A")
-    date_label.config(text=f" {day}, {date}")
-
-
-date_label = Label(window, font=("Times New Roman", 16), bg="white", fg="black")
-date_label.pack(pady=20)
-
-show_date()
-
-header_font = ("Times New Roman", 14, "bold")
-header_bg = "white"
-header_fg = "Red"
-
-row_font = ("Times New Roman", 10)
-row_colors = ['lightgrey', 'lightgrey']
-
-periods = ["Period 1", "Period 2", "Period 3", "Period 4", "Period 5",
-           "Period 6", "Period 7", "Period 8"]
-
-table_frame = Frame(window)
-table_frame.pack(pady=40)
-row = 1
-
-# Create headers
-for i in range(len(periods) + 1):
-    if i == 0:
-        Label(table_frame, text="Absent Teacher", font=header_font, bg=header_bg, fg=header_fg).grid(row=0,
-                                                                                                     column=i * 2)
-    else:
-        Label(table_frame, text=periods[i - 1], font=header_font, bg=header_bg, fg=header_fg).grid(row=0, column=i * 2)
-        Frame(table_frame, width=2, bg='black').grid(row=0, column=i * 2 - 1, rowspan=row + 1, sticky='ns')
-
-# Create rows for absent teachers and their substitutes
-row = 1
-# Create a list of all periods
-all_periods = ['Period {}'.format(i) for i in range(1, 9)]
-
-# Create a new dictionary to store the data for the table
-table_data = {'Absent Teacher': list(substitution_list.keys())}
-
-for period in all_periods:
-    table_data[period] = []
-
-for absent_teacher, substitutes in substitution_list.items():
-    Label(table_frame, text=absent_teacher.upper().replace('_', ' '), font=row_font, bg=row_colors[row % 2], wraplength=200).grid(row=row,
-                                                                                                                column=0)
-    # Create a dictionary to store substitutes for each period
-    period_substitutes = {}
-    for substitute in substitutes:
-        period_index = int(substitute[1].split('_')[-1])  # Assuming period is in the format 'Period X'
-        if period_index not in period_substitutes:
-            period_substitutes[period_index] = []
-        period_substitutes[period_index].append(substitute[0].upper())
-        period_substitutes[period_index].append(substitute[2])
-    print(period_substitutes) #######################
-    # Create labels for all periods
-    for i in range(1, len(periods) + 1):
-        if i in period_substitutes:
-            l = period_substitutes[i]
-
-            def center_elements(l):
-                length = len(l[0])
-                # Center the second element within the length of the first
-                centered = l[1].center(length)
-                # Join the elements with a newline character
-                result = '\n'.join([l[0].replace('_', ' '), centered])
-                return result
-            subs_text = center_elements(l)
+# Function to validate the number input
+def validate_number_input(event, submit_button):
+    try:
+        value = int(event.widget.get())
+        if value > 0:
+            submit_button.config(state=NORMAL)
         else:
-            subs_text = 'FREE'  # Display 'NULL' if there are no substitutes for this period
-        Label(table_frame, text=subs_text, font=row_font, bg=row_colors[row % 2], wraplength=200, anchor='n').grid(
-            row=row, column=i * 2)
-        Frame(table_frame, width=2, bg='black').grid(row=row + 1, column=i * 2 + 1)
-        table_data[all_periods[i - 1]].append(subs_text)
-    row += 1
+            submit_button.config(state=DISABLED)
+    except ValueError:
+        submit_button.config(state=DISABLED)
 
-print(table_data)
+# Function to create the initial GUI
+def gui(root):
+    root.title("Absent Teachers Input")
+    root.configure(bg='#f0f0f0')  # Light grey background
+    Label(root, text='Enter the number of absent teachers:', font=('Arial', 18), bg='#f0f0f0').pack(pady=10)
+    e1 = Entry(root, font=('Arial', 18))
+    e1.pack(pady=10)
+    submit_button = Button(root, text='Submit', command=lambda: root.after(200, get_absent_teachers, int(e1.get()), root), bg='#4CAF50', fg='white', font=('Arial', 14), state=DISABLED)
+    submit_button.pack(pady=10)
+    e1.bind("<KeyRelease>", lambda event: validate_number_input(event, submit_button))
+    center_window(root)
 
-# Convert the new dictionary to a Pandas DataFrame
-df = pd.DataFrame(table_data)
-image_file = get_sample_data('E://Nishant//Programs//school logo.png')
-image_file_2 = get_sample_data('E://Nishant//Programs//school bottom.png')
-image = plt.imread(image_file)
-image2 = plt.imread(image_file_2)
+# Function to get the names of absent teachers
+def get_absent_teachers(n, root):
+    root.destroy()
+    root = Tk()
+    root.title("Teacher Names Input")
+    root.geometry('800x600')
+    root.configure(bg='#f0f0f0')  # Light grey background
+    entries = []
 
-# Create a table using matplotlib
-fig, ax = plt.subplots(1, 1)
-ax.axis('tight')
-ax.axis('off')
-table = ax.table(cellText=df.values, colLabels=df.columns, loc='center')
-ax2 = fig.add_axes([0.2, 0.5, 0.6, 0.7])    # [left, bottom, width, height]
-ax3 = fig.add_axes([0.3, 0.01, 0.4, 0.3], anchor='S', zorder=-1)
-ax2.imshow(image)
-ax3.imshow(image2)
-ax2.axis('off')
-ax3.axis('off')
+    # Get the teacher names and codes
+    _, teacher_names = get_teachers()
+    teacher_options = [f"{code} - {name}" for code, name in teacher_names.items()]
 
-# Set the table properties
-table.auto_set_font_size(False)
-table.set_fontsize(10)
-table.scale(1, 2)
+    def validate_names():
+        entered_names = [e.get() for e in entries if e.get() != '']
+        if len(entered_names) == len(set(entered_names)):
+            submit_button.config(state=NORMAL)
+        else:
+            submit_button.config(state=DISABLED)
 
-# Set the grid and text colors
-for key, cell in table.get_celld().items():
-    cell.set_linewidth(0.5)
-    cell.set_edgecolor('black')
-    cell.set_text_props(color='blue')
-    if key[0] == 0:
-        cell.set_text_props(color='red')
+    for i in range(n):
+        Label(root, text=f'Enter the name of teacher {i+1}:', font=('Arial', 18), bg='#f0f0f0').pack(pady=10)
+        e = ttk.Combobox(root, values=teacher_options, font=('Arial', 18))
+        e.pack(pady=10)
+        e.bind("<<ComboboxSelected>>", lambda event: validate_names())
+        entries.append(e)
 
-    # Manually split long cell contents into multiple lines
-    text = cell.get_text().get_text()
-    if len(text) > 10:
-        split_text = text.split(', ')
-        wrapped_text = '\n'.join(split_text)
-        cell.get_text().set_text(wrapped_text)
+    submit_button = Button(root, text='Submit', command=lambda: [absent_teachers.append(int(e.get().split()[0])) for e in entries if e.get() != ''] + [root.destroy()], bg='#4CAF50', fg='white', font=('Arial', 14), state=DISABLED)
+    submit_button.pack(pady=10)
+    center_window(root)
 
-    cell.set_text_props(wrap=True)
-    cell._text.set_fontproperties(font_manager.FontProperties(family='monospace'))
-    cell.get_text().set_horizontalalignment('center')
-    cell.set_width(0.25)
+# Function to update the progress bar
+def update_progress(progress, progress_label, quote_label, count, total):
+    progress['value'] = (count / total) * 100
+    progress_label.config(text=f"{int((count / total) * 100)}%")
+    quote_label.config(text=random.choice(quotes))
+    progress.update()
 
-fig.tight_layout()
-fig.set_size_inches(11, 8.5)
-# Save the figure as a PDF file
-plt.savefig(f'{todate}_substitution.pdf', bbox_inches='tight')
+# Function to show error messages in a window
+def show_error(message):
+    error_root = Tk()
+    error_root.title("Error")
+    error_root.geometry('400x200')
+    error_root.configure(bg='#f0f0f0')
+    Label(error_root, text="An error occurred:", font=('Arial', 14, 'bold'), bg='#f0f0f0', fg='red').pack(pady=10)
+    Label(error_root, text=message, font=('Arial', 12), bg='#f0f0f0', wraplength=350).pack(pady=10)
+    Button(error_root, text="Close", command=error_root.destroy, bg='#4CAF50', fg='white', font=('Arial', 12)).pack(pady=10)
+    center_window(error_root)
+    error_root.mainloop()
 
-window.mainloop()
-sqltor.close()
-print('Substitution assigned successfully sir!')
+# Main function to run the program
+def main():
+    logging.info("Program started.")
+    try:
+        teachers, teacher_names = get_teachers()
+        root = Tk()
+        root.geometry('800x600')
+        root.configure(bg='#f0f0f0')  # Light grey background
+        gui(root)
+        root.mainloop()
+
+        # Create a new root for the progress bar
+        progress_root = Tk()
+        progress_root.title("Processing Substitutions")
+        progress_root.geometry('500x200')
+        progress_root.configure(bg='#f0f0f0')  # Light grey background
+        Label(progress_root, text="Processing... Please wait.", font=('Arial', 14), bg='#f0f0f0').pack(pady=10)
+        progress = ttk.Progressbar(progress_root, orient=HORIZONTAL, length=400, mode='determinate')
+        progress.pack(pady=10)
+        progress_label = Label(progress_root, text="0%", font=('Arial', 12), bg='#f0f0f0')
+        progress_label.pack(pady=10)
+        quote_label = Label(progress_root, text=random.choice(quotes), font=('Arial', 12, 'italic'), wraplength=400, bg='#f0f0f0')
+        quote_label.pack(pady=10)
+        center_window(progress_root)
+        progress_root.update()
+
+        today = date.today()  # Store the date object
+        formatted_date = today.strftime("%A, %B %d, %Y")
+        word_filename = f"substitution_list_{formatted_date}.docx"
+
+        df_list = []  # Use a list to collect DataFrames for each absent teacher
+        assigned_teachers = []
+
+        # Loop over all absent teachers
+        for count, teacher in enumerate(absent_teachers, start=1):
+            substitute = find_substitute(teacher, teacher_names, assigned_teachers)
+            if substitute is not None:
+                if 'Period 9' in substitute:
+                    del substitute['Period 9']
+                temp_df = pd.DataFrame.from_dict(substitute, orient='index', columns=[teacher_names[teacher]])
+                temp_df = temp_df.transpose()
+                df_list.append(temp_df)
+            update_progress(progress, progress_label, quote_label, count, len(absent_teachers))
+
+        if not df_list:
+            progress_root.destroy()
+            logging.warning("No substitutes were found.")
+            show_error("No substitutes were found.")
+            return
+
+        # Concatenate all DataFrames in the list
+        df = pd.concat(df_list)
+
+        df.reset_index(inplace=True)
+        df.columns = ['Absent Teacher'] + [f'Period {i}' for i in range(1, len(df.columns))]
+
+        # Create a new Document
+        doc = Document()
+
+        # Set the orientation to landscape
+        section = doc.sections[-1]
+        section.orientation = WD_ORIENTATION.LANDSCAPE
+        new_width, new_height = section.page_height, section.page_width
+        section.page_width = new_width
+        section.page_height = new_height
+
+        # Adjust margins
+        section.left_margin = Pt(30)  # Adjust as needed
+        section.right_margin = Pt(30)  # Adjust as needed
+        section.top_margin = Pt(15)  # Adjust as needed
+        section.bottom_margin = Pt(15)  # Adjust as needed
+
+        # Add today's day and date, centered and bold
+        p_date = doc.add_paragraph(formatted_date)
+        p_date.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        run_date = p_date.runs[0]
+        run_date.font.size = Pt(14)
+        run_date.font.bold = True
+
+        # Add the table to the document with a built-in style for borders
+        table = doc.add_table(rows=df.shape[0] + 1, cols=df.shape[1])
+        table.style = 'Table Grid'  # Apply a built-in style with borders
+
+        # Add the header row
+        for j, col_name in enumerate(df.columns):
+            cell = table.cell(0, j)
+            cell.text = col_name
+            run = cell.paragraphs[0].runs[0]
+            run.font.size = Pt(10)  # Set font size for the header
+            run.font.bold = True  # Bold font for the header
+            run.font.color.rgb = RGBColor(255, 0, 0)  # Set font color to red
+            cell.paragraphs[0].alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        # Add the data rows
+        for i, row in df.iterrows():
+            for j, value in enumerate(row):
+                cell = table.cell(i + 1, j)
+                cell.text = str(value)
+                run = cell.paragraphs[0].runs[0]
+                run.font.size = Pt(10)  # Set font size for the data
+                run.font.color.rgb = RGBColor(0, 0, 255)  # Set font color to blue
+                cell.paragraphs[0].alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        # Save the document
+        doc.save(word_filename)
+
+        # Open the output file automatically
+        os.startfile(word_filename)
+
+        # Destroy the progress window
+        progress_root.destroy()
+
+        logging.info("Program completed successfully.")
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        show_error(f"An error occurred: {e}")
+
+if __name__ == '__main__':
+    main()

@@ -7,6 +7,7 @@ CREATE TABLE BINI_P_KURIAKOSE (
   FRIDAY varchar(10),
   SATURDAY varchar(10)
 );
+
 INSERT INTO BINI_P_KURIAKOSE 
 VALUES 
 ('PERIOD_1',null,null,null,null,null,null), 

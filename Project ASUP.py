@@ -1,4 +1,5 @@
 from tkinter import ttk
+from tkinter import messagebox
 from tkinter import *
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from openpyxl import load_workbook
@@ -107,7 +108,7 @@ def find_substitute(absent_teacher, teacher_names, assigned_teachers):
                         teacher_timetable = get_timetable(teacher_names[teacher])
                         if teacher_timetable is None:
                             continue
-                        if period in assigned_periods[teacher_names[teacher]] or teacher_names[teacher] in excluded_teachers or teacher in absent_teachers:
+                        if period in assigned_periods[teacher_names[teacher]] or (teacher_names[teacher] in excluded_teachers and teacher != absent_teacher) or teacher in absent_teachers:
                             continue
                         if (period not in teacher_timetable or (teacher_timetable[period] and teacher_timetable[period].strip() == '')) and teacher_names[teacher] not in assigned_teachers:
                             free_teachers.append(teacher_names[teacher])
@@ -128,7 +129,7 @@ def find_substitute(absent_teacher, teacher_names, assigned_teachers):
                         teacher_timetable = get_timetable(teacher_names[teacher])
                         if teacher_timetable is None:
                             continue
-                        if period in assigned_periods[teacher_names[teacher]] or teacher_names[teacher] in excluded_teachers or teacher in absent_teachers:
+                        if period in assigned_periods[teacher_names[teacher]] or (teacher_names[teacher] in excluded_teachers and teacher != absent_teacher) or teacher in absent_teachers:
                             continue
                         if teacher_names[teacher] not in assigned_teachers:
                             free_teachers.append(teacher_names[teacher])
@@ -143,6 +144,7 @@ def find_substitute(absent_teacher, teacher_names, assigned_teachers):
 
             if period not in substitutes:  # Ensure substitution is assigned
                 substitutes[period] = 'No Substitute'
+                logging.info(f"No substitute found for period {period} of {teacher_names[absent_teacher]}")
 
     return substitutes
 
@@ -181,6 +183,11 @@ def gui(root):
     e1.bind("<KeyRelease>", lambda event: validate_number_input(event, submit_button))
     center_window(root)
 
+def append_absent_teachers(entries):
+    for e in entries:
+        if e.get() != '':
+            absent_teachers.append(int(e.get().split()[0]))
+
 # Function to get the names of absent teachers
 def get_absent_teachers(n, root):
     root.destroy()
@@ -203,12 +210,12 @@ def get_absent_teachers(n, root):
 
     for i in range(n):
         Label(root, text=f'Enter the name of teacher {i+1}:', font=('Arial', 18), bg='#f0f0f0').pack(pady=10)
-        e = ttk.Combobox(root, values=teacher_options, font=('Arial', 18))
-        e.pack(pady=10)
-        e.bind("<<ComboboxSelected>>", lambda event: validate_names())
-        entries.append(e)
+        combobox = ttk.Combobox(root, values=teacher_options, font=('Arial', 18))
+        combobox.pack(pady=10)
+        combobox.bind("<<ComboboxSelected>>", lambda event: validate_names())
+        entries.append(combobox)
 
-    submit_button = Button(root, text='Submit', command=lambda: [absent_teachers.append(int(e.get().split()[0])) for e in entries if e.get() != ''] + [root.destroy()], bg='#4CAF50', fg='white', font=('Arial', 14), state=DISABLED)
+    submit_button = Button(root, text='Submit', command=lambda: (append_absent_teachers(entries), root.destroy()), bg='#4CAF50', fg='white', font=('Arial', 14), state=DISABLED)
     submit_button.pack(pady=10)
     center_window(root)
 
@@ -216,8 +223,12 @@ def get_absent_teachers(n, root):
 def update_progress(progress, progress_label, quote_label, count, total):
     progress['value'] = (count / total) * 100
     progress_label.config(text=f"{int((count / total) * 100)}%")
-    quote_label.config(text=random.choice(quotes))
     progress.update()
+
+# Function to update the quote label every 5 seconds
+def update_quote(quote_label):
+    quote_label.config(text=random.choice(quotes))
+    quote_label.after(5000, update_quote, quote_label)
 
 # Function to show error messages in a window
 def show_error(message):
@@ -257,6 +268,9 @@ def main():
         center_window(progress_root)
         progress_root.update()
 
+        # Start updating quotes every 5 seconds
+        update_quote(quote_label)
+
         today = date.today()  # Store the date object
         formatted_date = today.strftime("%A, %B %d, %Y")
         word_filename = f"substitution_list_{formatted_date}.docx"
@@ -266,14 +280,20 @@ def main():
 
         # Loop over all absent teachers
         for count, teacher in enumerate(absent_teachers, start=1):
-            substitute = find_substitute(teacher, teacher_names, assigned_teachers)
-            if substitute is not None:
-                if 'Period 9' in substitute:
-                    del substitute['Period 9']
-                temp_df = pd.DataFrame.from_dict(substitute, orient='index', columns=[teacher_names[teacher]])
-                temp_df = temp_df.transpose()
-                df_list.append(temp_df)
-            update_progress(progress, progress_label, quote_label, count, len(absent_teachers))
+            try:
+                substitute = find_substitute(teacher, teacher_names, assigned_teachers)
+                if substitute is not None:
+                    if 'Period 9' in substitute:
+                        del substitute['Period 9']
+                    if not substitute:  # Check if substitute dictionary is empty
+                        raise ValueError("No substitutes found.")
+                    temp_df = pd.DataFrame.from_dict(substitute, orient='index', columns=[teacher_names[teacher]])
+                    temp_df = temp_df.transpose()
+                    df_list.append(temp_df)
+                update_progress(progress, progress_label, quote_label, count, len(absent_teachers))
+            except Exception as e:
+                logging.error(f"Failed to create substitution list for {teacher_names[teacher]}: {e}")
+                messagebox.showerror("Error", f"Failed to create substitution list for {teacher_names[teacher]}: {e}")
 
         if not df_list:
             progress_root.destroy()
@@ -325,9 +345,9 @@ def main():
             cell.paragraphs[0].alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
         # Add the data rows
-        for i, row in df.iterrows():
-            for j, value in enumerate(row):
-                cell = table.cell(i + 1, j)
+        for row_index, row in df.iterrows():
+            for col_index, value in enumerate(row):
+                cell = table.cell(int(row_index) + 1, col_index)
                 cell.text = str(value)
                 run = cell.paragraphs[0].runs[0]
                 run.font.size = Pt(10)  # Set font size for the data

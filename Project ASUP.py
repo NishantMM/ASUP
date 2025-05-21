@@ -76,78 +76,107 @@ def has_continuous_free_periods(teacher_timetable, min_free_periods=2):
     return False
 
 # Function to find a substitute teacher for an absent teacher
-def find_substitute(absent_teacher, teacher_names, assigned_teachers):
+def find_substitute(absent_teacher, teacher_names, assigned_teachers, absent_teachers):
     groups = group_teachers()
     substitutes = {}
-    assigned_periods = {teacher: [] for teacher in teacher_names.values()}
-    excluded_teachers = ['AMIN MURMU', 'BINI P KURIAKOSE', 'JONES SOLOMON ROCHE', 'KARUPPASAMY A',
-                         'SOMASHEKHARAIAH D S', 'SR.THERESA JOSEPH']
+
+    assigned_periods = {teacher.strip(): [] for teacher in teacher_names.values()}
+
+    excluded_teachers = [
+        'AMIN MURMU', 'BINI P KURIAKOSE', 'JONES SOLOMON ROCHE',
+        'KARUPPASAMY A', 'SOMASHEKHARAIAH D S', 'SR.THERESA JOSEPH'
+    ]
+
+    # Set of codes and names for fast lookup
+    absent_teacher_codes = set(absent_teachers)
+    absent_teacher_names = set(teacher_names[code].strip() for code in absent_teachers if code in teacher_names)
 
     if absent_teacher in teacher_names:
-        absent_timetable = get_timetable(teacher_names[absent_teacher])
+        absent_code = absent_teacher
+        absent_name = teacher_names[absent_code].strip()
+        absent_timetable = get_timetable(absent_name)
+
         if absent_timetable is None:
             return None
 
         for period, class_ in absent_timetable.items():
-            if class_ is None or class_ == '-' or (class_ and class_.strip() == ''):
+            if class_ is None or class_ == '-' or str(class_).strip() == '':
                 substitutes[period] = 'Free Period'
                 continue
 
-            if class_ and any(char.isdigit() for char in class_):
-                class_number = int(''.join(filter(str.isdigit, class_)))
-            else:
-                class_number = None
+            class_number = None
+            if any(char.isdigit() for char in str(class_)):
+                class_number = int(''.join(filter(str.isdigit, str(class_))))
 
             substitute_found = False
 
-            # First, try to find a substitute from the same group
             for group, teachers_in_group in groups.items():
                 if class_number in group:
-                    free_teachers = []
-                    for teacher in teachers_in_group:
-                        teacher_timetable = get_timetable(teacher_names[teacher])
+                    for teacher_code in teachers_in_group:
+                        teacher_name = teacher_names[teacher_code].strip()
+                        # SKIP if teacher is absent, excluded, or already assigned or has class that period
+                        if (teacher_code == absent_code or
+                            teacher_name == absent_name or
+                            teacher_name in excluded_teachers or
+                            teacher_code in absent_teacher_codes or
+                            teacher_name in absent_teacher_names):
+                            continue
+
+                        teacher_timetable = get_timetable(teacher_name)
                         if teacher_timetable is None:
                             continue
-                        if period in assigned_periods[teacher_names[teacher]] or (teacher_names[teacher] in excluded_teachers and teacher != absent_teacher) or teacher in absent_teachers:
+
+                        # Check if already assigned a sub for this period
+                        if period in assigned_periods[teacher_name]:
                             continue
-                        if (period not in teacher_timetable or (teacher_timetable[period] and teacher_timetable[period].strip() == '')) and teacher_names[teacher] not in assigned_teachers:
-                            free_teachers.append(teacher_names[teacher])
 
-                    if free_teachers:
-                        substitute_teacher = random.choice(free_teachers)
-                        substitutes[period] = f"{substitute_teacher}\n{class_.strip() if class_ else ''}"
-                        assigned_periods[substitute_teacher].append(period)
-                        assigned_teachers.append(substitute_teacher)
-                        substitute_found = True
-                        break
+                        period_value = teacher_timetable.get(period)
+                        # Must be empty, None, '-', or ' ' (space) to be free
+                        if period_value in (None, '-', '', ' '):
+                            if teacher_name not in assigned_teachers:
+                                substitutes[period] = f"{teacher_name}\n{class_.strip()}"
+                                assigned_teachers.append(teacher_name)
+                                assigned_periods[teacher_name].append(period)
+                                substitute_found = True
+                                break
+                if substitute_found:
+                    break
 
-            # Fallback: Look for any teacher from any group if no substitute was found
+            # Fallback: search in all groups (repeat the same filter conditions as above)
             if not substitute_found:
                 for group, teachers_in_group in groups.items():
-                    free_teachers = []
-                    for teacher in teachers_in_group:
-                        teacher_timetable = get_timetable(teacher_names[teacher])
+                    for teacher_code in teachers_in_group:
+                        teacher_name = teacher_names[teacher_code].strip()
+                        if (teacher_code == absent_code or
+                            teacher_name == absent_name or
+                            teacher_name in excluded_teachers or
+                            teacher_code in absent_teacher_codes or
+                            teacher_name in absent_teacher_names):
+                            continue
+
+                        teacher_timetable = get_timetable(teacher_name)
                         if teacher_timetable is None:
                             continue
-                        if period in assigned_periods[teacher_names[teacher]] or (teacher_names[teacher] in excluded_teachers and teacher != absent_teacher) or teacher in absent_teachers:
-                            continue
-                        if teacher_names[teacher] not in assigned_teachers:
-                            free_teachers.append(teacher_names[teacher])
 
-                    if free_teachers:
-                        substitute_teacher = random.choice(free_teachers)
-                        substitutes[period] = f"{substitute_teacher}\n{class_.strip() if class_ else ''}"
-                        assigned_periods[substitute_teacher].append(period)
-                        assigned_teachers.append(substitute_teacher)
-                        substitute_found = True
+                        if period in assigned_periods[teacher_name]:
+                            continue
+
+                        period_value = teacher_timetable.get(period)
+                        if period_value in (None, '-', '', ' '):
+                            if teacher_name not in assigned_teachers:
+                                substitutes[period] = f"{teacher_name}\n{class_.strip()}"
+                                assigned_teachers.append(teacher_name)
+                                assigned_periods[teacher_name].append(period)
+                                substitute_found = True
+                                break
+                    if substitute_found:
                         break
 
-            if period not in substitutes:  # Ensure substitution is assigned
+            if not substitute_found:
                 substitutes[period] = 'No Substitute'
-                logging.info(f"No substitute found for period {period} of {teacher_names[absent_teacher]}")
+                logging.info(f"No substitute found for period {period} of {absent_name}")
 
     return substitutes
-
 
 absent_teachers = []
 
@@ -281,7 +310,7 @@ def main():
         # Loop over all absent teachers
         for count, teacher in enumerate(absent_teachers, start=1):
             try:
-                substitute = find_substitute(teacher, teacher_names, assigned_teachers)
+                substitute = find_substitute(teacher, teacher_names, assigned_teachers, absent_teachers)
                 if substitute is not None:
                     if 'Period 9' in substitute:
                         del substitute['Period 9']
@@ -298,7 +327,7 @@ def main():
         if not df_list:
             progress_root.destroy()
             logging.warning("No substitutes were found.")
-            show_error("No substitutes were found.")
+            show_error("No substitutes were found. Please contact Jones Sir")
             return
 
         # Concatenate all DataFrames in the list

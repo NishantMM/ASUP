@@ -3,20 +3,19 @@ from tkinter import messagebox
 from tkinter import *
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from openpyxl import load_workbook
-from datetime import datetime
 import random
 from docx import Document
 from docx.enum.section import WD_ORIENTATION
 from docx.shared import Pt, RGBColor
 import pandas as pd
-from datetime import date
 import os
 import logging
 
 # Configure logging
 logging.basicConfig(filename='substitution_list.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-day = datetime.today().weekday()
+# This variable will be set according to selected date
+day = None
 
 # List of motivational quotes
 quotes = [
@@ -26,6 +25,81 @@ quotes = [
     "Your time is limited, so don’t waste it living someone else’s life.",
     "The best time to plant a tree was 20 years ago. The second best time is now."
 ]
+
+# Function to show a calendar and let user pick a date
+def ask_for_date():
+    from tkinter import Tk, Toplevel, Label, Button, CENTER
+    from tkcalendar import Calendar
+
+    root = Tk()
+    root.withdraw()  # Hide main window
+
+    selected_date = None
+
+    def on_date_selected():
+        nonlocal selected_date
+        selected_date = cal.selection_get()
+        sel_win.destroy()
+
+    sel_win = Toplevel()
+    sel_win.title("Select Date for Substitution")
+    sel_win.geometry("600x560")
+    sel_win.configure(bg="#e8f5e9")  # Soft blue-like background
+
+    # Heading
+    heading = Label(
+        sel_win,
+        text="Please Select the Date",
+        font=("Arial Rounded MT Bold", 24, "bold"),
+        fg="#145a32",  # Dark green
+        bg="#e8f5e9",
+        pady=18
+    )
+    heading.pack()
+
+    # Calendar widget
+    cal = Calendar(
+        sel_win,
+        selectmode="day",
+        font="Arial 18",
+        background="#b2dfdb",
+        disabledbackground="#b2dfdb",
+        bordercolor="#145a32",
+        headersbackground="#81c784",
+        normalbackground="#e8f5e9",
+        weekendbackground="#e8f5e9",
+        foreground="#145a32",
+        normalforeground="#145a32",
+        headersforeground="#fff",
+        selectbackground="#388e3c",
+        selectforeground="#fff",
+        firstweekday="monday",
+        font_day="Arial 18 bold",
+        font_month="Arial 20 bold",
+        font_year="Arial 18 bold"
+    )
+    cal.pack(pady=24)
+
+    # Select button
+    btn = Button(
+        sel_win,
+        text="Select Date",
+        command=on_date_selected,
+        font=("Arial", 17, "bold"),
+        bg="#388e3c",
+        fg="white",
+        relief="raised",
+        padx=36,
+        pady=12,
+        activebackground="#145a32",
+        activeforeground="white"
+    )
+    btn.pack(pady=30)
+
+    sel_win.grab_set()  # Modal window
+    sel_win.wait_window()
+    root.destroy()
+    return selected_date
 
 # Function to get the timetable of a teacher
 def get_timetable(teacher_name):
@@ -275,6 +349,15 @@ def show_error(message):
 def main():
     logging.info("Program started.")
     try:
+        # Ask for the date first!
+        chosen_date = ask_for_date()
+        if not chosen_date:
+            show_error("No date selected. Exiting.")
+            return
+
+        global day
+        day = chosen_date.weekday()
+
         teachers, teacher_names = get_teachers()
         root = Tk()
         root.geometry('800x600')
@@ -300,8 +383,7 @@ def main():
         # Start updating quotes every 5 seconds
         update_quote(quote_label)
 
-        today = date.today()  # Store the date object
-        formatted_date = today.strftime("%A, %B %d, %Y")
+        formatted_date = chosen_date.strftime("%A, %B %d, %Y")
         word_filename = f"substitution_list_{formatted_date}.docx"
 
         df_list = []  # Use a list to collect DataFrames for each absent teacher

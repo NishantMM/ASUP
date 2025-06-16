@@ -28,3 +28,34 @@ ASUP/
 ├── main.py                                # Main logic script
 ├── README.md                              # Project documentation
 └── requirements.txt                       # Python dependencies
+
+ **Input Files (Excel Format)**
+The program uses the following files from the data folder:
+
+🔹 T_TIMETABLE.xlsx
+Format: One worksheet per teacher
+
+Each sheet:
+
+Rows: Days of the week (Monday to Saturday)
+
+Columns: Period 1 to Period 8
+
+Cell content:
+
+Blank → Free period
+
+Otherwise → Subject-ClassSection (e.g., Math-6A, Sci-7B)
+
+🔹 TMAP-Teachers-Classes.xlsx
+A single-sheet Excel file mapping teacher codes and class groups.
+
+Columns:
+
+TCODE – Unique teacher ID (e.g., T102)
+
+TNAME – Teacher's name (e.g., Anjali)
+
+TCLASSES – Classes taught, as comma-separated values (e.g., 6,7)
+
+⚠️ The real files are excluded for privacy. Sample files are provided in the data/ folder.
